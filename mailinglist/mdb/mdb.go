@@ -1,4 +1,4 @@
-package db
+package mdb
 
 import (
 	"database/sql"
@@ -17,14 +17,17 @@ type EmailEntry struct {
 }
 
 func TryCreate(db *sql.DB) {
-	_, err := db.Exec(`
+	result, err := db.Exec(`
 		CREATE TABLE emails (
 			id INTEGER PRIMARY KEY,
 			email TEXT UNIQUE,
 			confirmed_at INTEGER,
-			opt_out INTEGER,
+			opt_out INTEGER
 		);
 	`)
+
+	fmt.Println(result)
+	fmt.Println(err)
 
 	if err != nil {
 		if sqlError, ok := err.(sqlite3.Error); ok {
@@ -39,13 +42,16 @@ func TryCreate(db *sql.DB) {
 }
 
 func emailEntryFromRow(row *sql.Rows) (*EmailEntry, error) {
-	vars := EmailEntry{}
+	var id int64
+	var email string
+	var confirmedAt int64
+	var optOut bool
 
 	err := row.Scan(
-		&vars.Id,
-		&vars.Email,
-		&vars.ConfirmedAt,
-		&vars.Optout,
+		&id,
+		&email,
+		&confirmedAt,
+		&optOut,
 	)
 
 	if err != nil {
@@ -53,7 +59,9 @@ func emailEntryFromRow(row *sql.Rows) (*EmailEntry, error) {
 		return nil, err
 	}
 
-	return &vars, nil
+	t := time.Unix(confirmedAt, 0)
+
+	return &EmailEntry{Id: id, Email: email, ConfirmedAt: &t, Optout: optOut}, nil
 
 }
 
@@ -76,7 +84,7 @@ func CreateEmail(db *sql.DB, email string) error {
 
 func GetEmail(db *sql.DB, email string) (*EmailEntry, error) {
 	rows, err := db.Query(`
-		SELECT *
+		SELECT id, email, confirmed_at, opt_out
 		FROM emails
 		WHERE email = ?
 	`, email,
@@ -84,20 +92,21 @@ func GetEmail(db *sql.DB, email string) (*EmailEntry, error) {
 
 	if err != nil {
 		fmt.Println(err)
+		fmt.Println("AAAAA")
 		return nil, err
 	}
 
-	defer db.Close()
+	defer rows.Close()
 
 	// iterate in each row
 	for rows.Next() {
-		emailEntryFromRow(rows)
+		return emailEntryFromRow(rows)
 	}
 
 	return nil, nil
 }
 
-func EmailUpdate(db *sql.DB, email string) error {
+func UpdateEmail(db *sql.DB, email string) error {
 
 	values, err := GetEmail(db, email)
 
@@ -109,7 +118,7 @@ func EmailUpdate(db *sql.DB, email string) error {
 	t := values.ConfirmedAt.Unix()
 
 	_, err = db.Exec(`
-		INSERT INTO 
+		INSERT INTO
 		emails(email, confirmed_at, opt_out)
 		VALUES(?, ?, ?)
 		ON CONFLICT(email) DO UPDATE SET
